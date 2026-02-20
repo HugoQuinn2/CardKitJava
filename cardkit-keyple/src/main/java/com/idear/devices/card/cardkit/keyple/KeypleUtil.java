@@ -9,6 +9,8 @@ import com.idear.devices.card.cardkit.core.datamodel.date.DateTimeReal;
 import com.idear.devices.card.cardkit.core.datamodel.date.ReverseDate;
 import com.idear.devices.card.cardkit.core.exception.CardException;
 import com.idear.devices.card.cardkit.core.exception.SamException;
+import com.idear.devices.card.cardkit.core.exception.SignatureException;
+import com.idear.devices.card.cardkit.core.io.apdu.ResponseApdu;
 import com.idear.devices.card.cardkit.core.io.reader.GenericApduResponse;
 import com.idear.devices.card.cardkit.core.utils.BitUtil;
 import com.idear.devices.card.cardkit.core.utils.ByteUtils;
@@ -45,6 +47,7 @@ import org.eclipse.keypop.reader.ReaderApiFactory;
 import org.eclipse.keypop.reader.selection.*;
 import org.eclipse.keypop.reader.selection.spi.SmartCard;
 
+import javax.smartcardio.CommandAPDU;
 import java.time.LocalDate;
 import java.util.*;
 
@@ -270,14 +273,17 @@ public abstract class KeypleUtil {
         bit.setNextInteger(0, 16);
         bit.setNextInteger(0, 24);
 
-        GenericApduResponse response = digestMacCompute(
-                keypleCalypsoSamReader.getGenericSamTransactionManager(),
-                (byte) 0xEB,
-                (byte) 0xC0,
-                bit.getData());
+        try {
+            ResponseApdu response = digestMacCompute(
+                    keypleCalypsoSamReader,
+                    (byte) 0xEB,
+                    (byte) 0xC0,
+                    bit.getData());
 
-        log.debug("Digest MAC compute: {}h", response.getSw());
-        return HexUtil.toHex(response.getDataOut());
+            return HexUtil.toHex(response.getData());
+        } catch (Exception e) {
+            throw new SignatureException("error computing mac transaction signature", e);
+        }
     }
 
     private static int getSvProvider(int et) {
@@ -321,43 +327,33 @@ public abstract class KeypleUtil {
     /**
      * Sends a DIGEST MAC COMPUTE command to the SAM.
      *
-     * @param samGenericTransactionManager the SAM transaction manager
+     * @param keypleCalypsoSamReade the SAM transaction manager
      * @param kif the key identifier
      * @param kvc the key version
      * @param data the data to authenticate
      * @return a {@link GenericApduResponse} containing the MAC and status word
      */
-    public static GenericApduResponse digestMacCompute(
-            CardTransactionManager samGenericTransactionManager,
+    public static ResponseApdu digestMacCompute(
+            KeypleCalypsoSamReader keypleCalypsoSamReade,
             byte kif,
             byte kvc,
             byte[] data) {
-        byte cla = (byte) 0x80;
-        byte ins = (byte) 0x8F;
-        byte p1  = (byte) 0x00;
-        byte p2  = (byte) 0x00;
-        byte lc  = (byte) 0x22;
 
-        byte[] head = {cla, ins, p1, p2, lc, kif, kvc};
-        byte[] apdu = new byte[head.length + data.length];
-        System.arraycopy(head, 0, apdu, 0, head.length);
-        System.arraycopy(data, 0, apdu, head.length, data.length);
+        byte[] _data = new byte[data.length + 2];
+        _data[0] = kif;
+        _data[1] = kvc;
+        System.arraycopy(data, 0, _data, 2, data.length);
 
-        byte[] mac;
-        String sw = "";
         try {
-            byte[] response = samGenericTransactionManager
-                    .prepareApdu(apdu)
-                    .processApdusToByteArrays(org.eclipse.keyple.card.generic.ChannelControl.KEEP_OPEN)
-                    .get(0);
-            mac = Arrays.copyOfRange(response, 0, response.length - 2);
-            sw = org.eclipse.keyple.core.util.HexUtil.toHex(Arrays.copyOfRange(
-                    response, response.length-2, response.length));
-        } catch (TransactionException e) {
-            log.error("Digest MAC compute error: {}", e.getMessage());
-            mac = new byte[0];
+            return keypleCalypsoSamReade.simpleCommand(
+                    new CommandAPDU(
+                            0x80, 0x8F, 0x00, 0x00,
+                            _data
+                    )
+            ).throwIsNotSuccess();
+        } catch (Exception e) {
+            throw new SamException("error digesting mac compute", e);
         }
-        return new GenericApduResponse(mac, sw);
     }
 
     /**
@@ -459,32 +455,36 @@ public abstract class KeypleUtil {
         wEfContract.setAuthKvc((byte) 0xC4 & 0xff);
 
         // Compute contract signature
-        TraceableSignatureComputationData signatureData = buildSignatureComputationData(
-                fullSerial,
-                wEfContract);
-        ctm.getCryptoExtension(CardTransactionLegacySamExtension.class)
-                .prepareComputeSignature(signatureData);
-        ctm.processCommands(ChannelControl.KEEP_OPEN);
+        try {
+            TraceableSignatureComputationData signatureData = buildSignatureComputationData(
+                    fullSerial,
+                    wEfContract);
+            ctm.getCryptoExtension(CardTransactionLegacySamExtension.class)
+                    .prepareComputeSignature(signatureData);
+            ctm.processCommands(ChannelControl.KEEP_OPEN);
 
-        // Get signed contract
-        int signature = ByteArrayUtil.extractInt(
-                signatureData.getSignature(),
-                0, 3, false);
+            // Get signed contract
+            int signature = ByteArrayUtil.extractInt(
+                    signatureData.getSignature(),
+                    0, 3, false);
 
-        byte[] signedContract = Arrays.copyOfRange(
-                signatureData.getSignedData(),
-                fullSerial.length, signatureData.getSignedData().length);
+            byte[] signedContract = Arrays.copyOfRange(
+                    signatureData.getSignedData(),
+                    fullSerial.length, signatureData.getSignedData().length);
 
-        wEfContract.parse(signedContract);
+            wEfContract.parse(signedContract);
 
-        // Set signature independent fields
-        wEfContract.setRfu(0);
-        wEfContract.getStatus().setValue(ContractStatus.CONTRACT_PARTLY_USED);
-        wEfContract.setStartDate(startDate);
-        wEfContract.setAuthenticator(signature);
-        wEfContract.update();
+            // Set signature independent fields
+            wEfContract.setRfu(0);
+            wEfContract.getStatus().setValue(ContractStatus.CONTRACT_PARTLY_USED);
+            wEfContract.setStartDate(startDate);
+            wEfContract.setAuthenticator(signature);
+            wEfContract.update();
 
-        return wEfContract;
+            return wEfContract;
+        } catch (Exception e) {
+            throw new CardException("Error building contract signature", e);
+        }
     }
 
     /**
