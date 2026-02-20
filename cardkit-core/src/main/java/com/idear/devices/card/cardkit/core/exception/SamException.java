@@ -4,7 +4,9 @@ public class SamException extends CardKitException {
     public SamException(String message) {
         super(message);
     }
-    public SamException(String message, Object... o) {
-        this(String.format(message, 0));
+
+    public SamException(String message, Throwable cause) {
+        super(message, cause);
     }
+
 }

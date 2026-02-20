@@ -5,7 +5,7 @@ public class ReaderException extends CardKitException {
         super(message);
     }
 
-    public ReaderException(String message, Object... o) {
-        super(String.format(message, o));
+    public ReaderException(String message, Throwable cause) {
+        super(message, cause);
     }
 }

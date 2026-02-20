@@ -6,7 +6,7 @@ public class CardException extends CardKitException {
         super(message);
     }
 
-    public CardException(String message, Object... o) {
-        super(String.format(message, o));
+    public CardException(String message, Throwable cause) {
+        super(message, cause);
     }
 }
