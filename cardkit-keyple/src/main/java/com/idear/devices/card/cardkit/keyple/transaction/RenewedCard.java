@@ -5,6 +5,7 @@ import com.idear.devices.card.cardkit.core.datamodel.calypso.cdmx.file.Event;
 import com.idear.devices.card.cardkit.core.datamodel.calypso.cdmx.constant.*;
 import com.idear.devices.card.cardkit.core.datamodel.calypso.cdmx.file.Contract;
 import com.idear.devices.card.cardkit.core.datamodel.calypso.cdmx.file.Logs;
+import com.idear.devices.card.cardkit.core.exception.SignatureException;
 import com.idear.devices.card.cardkit.keyple.KeypleTransactionContext;
 import com.idear.devices.card.cardkit.core.datamodel.date.ReverseDate;
 import com.idear.devices.card.cardkit.core.exception.CardException;
@@ -99,12 +100,17 @@ public class RenewedCard extends AbstractTransaction<TransactionDataEvent, Keypl
                 context.getKeypleCardReader().getCalypsoCard()
         );
 
-        String mac = KeypleUtil.computeTransactionSignature(
-                context.getKeypleCalypsoSamReader(),
-                event,
-                calypsoCardCDMX,
-                calypsoCardCDMX.getBalance()
-        );
+        String mac = "";
+        try {
+            mac = KeypleUtil.computeTransactionSignature(
+                    context.getKeypleCalypsoSamReader(),
+                    event,
+                    calypsoCardCDMX,
+                    calypsoCardCDMX.getBalance()
+            );
+        } catch (SignatureException e) {
+            log.warn("Transaction success but MAC was not generated", e);
+        }
 
         return TransactionResult
                 .<TransactionDataEvent>builder()

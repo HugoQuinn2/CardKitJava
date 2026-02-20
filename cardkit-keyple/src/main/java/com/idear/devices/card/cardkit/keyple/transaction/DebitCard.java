@@ -7,6 +7,7 @@ import com.idear.devices.card.cardkit.core.datamodel.calypso.cdmx.file.Contract;
 import com.idear.devices.card.cardkit.core.datamodel.calypso.cdmx.file.Logs;
 import com.idear.devices.card.cardkit.core.datamodel.date.CompactDate;
 import com.idear.devices.card.cardkit.core.datamodel.date.CompactTime;
+import com.idear.devices.card.cardkit.core.exception.SignatureException;
 import com.idear.devices.card.cardkit.keyple.KeypleTransactionContext;
 import com.idear.devices.card.cardkit.core.exception.CardException;
 import com.idear.devices.card.cardkit.core.io.transaction.AbstractTransaction;
@@ -15,6 +16,7 @@ import com.idear.devices.card.cardkit.core.io.transaction.TransactionStatus;
 import com.idear.devices.card.cardkit.core.utils.DateUtils;
 import com.idear.devices.card.cardkit.keyple.KeypleUtil;
 import com.idear.devices.card.cardkit.keyple.TransactionDataEvent;
+import com.idear.devices.card.cardkit.keyple.exception.KeypleException;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -83,29 +85,38 @@ public class DebitCard
                 amount
         );
 
-        context.getCardTransactionManager()
-                .prepareSvGet(SvOperation.DEBIT, SvAction.DO)
-                .prepareSvDebit(
-                        amount,
-                        CompactDate.now().toBytes(),
-                        CompactTime.now().toBytes()
-                ).prepareAppendRecord(
-                        event.getFileId(),
-                        event.unparse()
-                ).prepareCloseSecureSession()
-                .processCommands(ChannelControl.KEEP_OPEN);
+        try {
+            context.getCardTransactionManager()
+                    .prepareSvGet(SvOperation.DEBIT, SvAction.DO)
+                    .prepareSvDebit(
+                            amount,
+                            CompactDate.now().toBytes(),
+                            CompactTime.now().toBytes()
+                    ).prepareAppendRecord(
+                            event.getFileId(),
+                            event.unparse()
+                    ).prepareCloseSecureSession()
+                    .processCommands(ChannelControl.KEEP_OPEN);
+        } catch (Exception e) {
+            throw new KeypleException("error writing data on card", e);
+        }
 
         Logs logs = KeypleUtil.readCardLogs(
                 context.getCardTransactionManager(),
                 context.getKeypleCardReader().getCalypsoCard()
         );
 
-        String mac = KeypleUtil.computeTransactionSignature(
-                context.getKeypleCalypsoSamReader(),
-                event,
-                calypsoCardCDMX,
-                calypsoCardCDMX.getBalance()
-        );
+        String mac = "";
+        try {
+            mac = KeypleUtil.computeTransactionSignature(
+                    context.getKeypleCalypsoSamReader(),
+                    event,
+                    calypsoCardCDMX,
+                    calypsoCardCDMX.getBalance()
+            );
+        } catch (SignatureException e) {
+            log.warn("Transaction success but MAC was not generated", e);
+        }
 
         return TransactionResult
                 .<TransactionDataEvent>builder()
@@ -126,112 +137,4 @@ public class DebitCard
                 ).build();
     }
 
-    /**
-     * Validates the passback time between two consecutive debits.
-     *
-     * @param now             Current timestamp.
-     * @param lastDebitDateTime Timestamp of the last debit.
-     * @throws CardException if the passback time is too short.
-     */
-    private void validatePassback(LocalDateTime now, LocalDateTime lastDebitDateTime) {
-        int passBackDuration = calypsoCardCDMX.getEnvironment().getProfile().decode(Profile.RFU).getPassBack();
-        Duration passBack = Duration.ofMinutes(passBackDuration);
-
-        if (Duration.between(lastDebitDateTime, now).compareTo(passBack) < 0) {
-            throw new CardException("invalid pass back of %s minutes for profile %s, wait until %s, last debit on %s",
-                    passBackDuration,
-                    calypsoCardCDMX.getEnvironment().getProfile(),
-                    DateUtils.toLocalZone(lastDebitDateTime.plusMinutes(passBackDuration)),
-                    DateUtils.toLocalZone(lastDebitDateTime));
-        }
-    }
-
-    /**
-     * Validates whether the current profile is allowed on the given equipment.
-     *
-     * @param equipment The device performing the debit.
-     * @throws CardException if the profile is not allowed on the equipment.
-     */
-    private void validateProfileOnEquipment(Equipment equipment) {
-        if (!calypsoCardCDMX.getEnvironment().getProfile().decode(Profile.RFU).isAllowedOn(equipment)) {
-            throw new CardException("profile %s is not allowed on this device [%s]",
-                    calypsoCardCDMX.getEnvironment().getProfile(),
-                    equipment);
-        }
-    }
-
-    /**
-     * Validates contract status, expiration, modality, and tariff restrictions.
-     *
-     * @param deviceProvider The provider performing the transaction.
-     * @throws CardException if contract validations fail.
-     */
-    private void validateContract(int deviceProvider) {
-        if (!contract.getStatus().decode(ContractStatus.RFU).isAccepted())
-            throw new CardException("card without valid contract");
-
-        if (contract.isExpired(0))
-            throw new CardException("card expired on %s", contract.getExpirationDate());
-
-        if (contract.getModality().decode(Modality.FORBIDDEN) == Modality.MONOMODAL &&
-                contract.getProvider().getValue() != provider) {
-            throw new CardException("monomodal verification failed, device provider must match contract provider %s",
-                    contract.getProvider());
-        }
-
-        if (contract.getTariff().decode(Tariff.RFU) == Tariff.SEASON_PASS ||
-                contract.getTariff().decode(Tariff.RFU) == Tariff.TICKET_BOOK)
-            throw new CardException("unsupported tariff %s on this transaction", contract.getTariff());
-    }
-
-    /**
-     * Determines the final debit amount based on the contract tariff and max allowed amount.
-     *
-     * @return The final debit amount.
-     * @throws CardException if the amount exceeds {@link #MAX_POSSIBLE_AMOUNT}.
-     */
-    private int resolveDebitAmount() {
-        int finalAmount = amount;
-//        if (!contract.getTariff().equals(Tariff.STORED_VALUE)) finalAmount = 0;
-        if (finalAmount > MAX_POSSIBLE_AMOUNT)
-            throw new CardException("amount cannot be greater than %s", MAX_POSSIBLE_AMOUNT);
-
-        if (finalAmount > calypsoCardCDMX.getBalance())
-            throw new CardException("insufficient balance for debit, amount %s, current balance %s", finalAmount, calypsoCardCDMX.getBalance());
-
-        return finalAmount;
-    }
-
-    /**
-     * Determines the transaction type based on amount and equipment type.
-     *
-     * @param finalAmount The final debit amount.
-     * @param equipment   The equipment performing the transaction.
-     * @return The transaction type.
-     */
-    private TransactionType determineTransactionType(int finalAmount, Equipment equipment) {
-        if (finalAmount == 0) return TransactionType.MULTIMODAL_FREE_PASS;
-        if (equipment.isSpecialService()) return TransactionType.SPECIAL_SERVICE_DEBIT;
-        return TransactionType.GENERAL_DEBIT;
-    }
-
-    /**
-     * Builds a TransactionResult object containing the transaction outcome and message.
-     *
-     * @param finalAmount The final debit amount.
-     * @return TransactionResult with status and message.
-     */
-    private TransactionResult<Boolean> buildTransactionResult(int finalAmount) {
-        String message = (finalAmount == 0)
-                ? String.format("free pass for tariff %s", contract.getTariff())
-                : String.format("%s debit to card '%s' was made correctly, final balance: %s",
-                amount, calypsoCardCDMX.getSerial(), calypsoCardCDMX.getBalance() - finalAmount);
-
-        log.info(message);
-        return TransactionResult.<Boolean>builder()
-                .transactionStatus(TransactionStatus.OK)
-                .data(true)
-                .message(message)
-                .build();
-    }
 }

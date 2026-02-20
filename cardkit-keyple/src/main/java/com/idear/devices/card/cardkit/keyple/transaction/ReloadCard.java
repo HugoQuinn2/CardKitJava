@@ -6,6 +6,7 @@ import com.idear.devices.card.cardkit.core.datamodel.calypso.cdmx.file.Contract;
 import com.idear.devices.card.cardkit.core.datamodel.calypso.cdmx.file.Logs;
 import com.idear.devices.card.cardkit.core.datamodel.date.CompactDate;
 import com.idear.devices.card.cardkit.core.datamodel.date.CompactTime;
+import com.idear.devices.card.cardkit.core.exception.SignatureException;
 import com.idear.devices.card.cardkit.core.utils.ByteUtils;
 import com.idear.devices.card.cardkit.keyple.KeypleTransactionContext;
 import com.idear.devices.card.cardkit.core.datamodel.calypso.cdmx.constant.TransactionType;
@@ -16,6 +17,7 @@ import com.idear.devices.card.cardkit.keyple.KeypleUtil;
 import com.idear.devices.card.cardkit.keyple.TransactionDataEvent;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.eclipse.keypop.calypso.card.transaction.ChannelControl;
 import org.eclipse.keypop.calypso.card.transaction.SvAction;
 import org.eclipse.keypop.calypso.card.transaction.SvOperation;
@@ -34,6 +36,7 @@ import org.eclipse.keypop.calypso.card.transaction.SvOperation;
  */
 @Getter
 @RequiredArgsConstructor
+@Slf4j
 public class ReloadCard extends AbstractTransaction<TransactionDataEvent, KeypleTransactionContext> {
 
     private final CalypsoCardCDMX calypsoCardCDMX;
@@ -75,12 +78,17 @@ public class ReloadCard extends AbstractTransaction<TransactionDataEvent, Keyple
                 context.getKeypleCardReader().getCalypsoCard()
         );
 
-        String mac = KeypleUtil.computeTransactionSignature(
-                context.getKeypleCalypsoSamReader(),
-                event,
-                calypsoCardCDMX,
-                calypsoCardCDMX.getBalance()
-        );
+        String mac = "";
+        try {
+            mac = KeypleUtil.computeTransactionSignature(
+                    context.getKeypleCalypsoSamReader(),
+                    event,
+                    calypsoCardCDMX,
+                    calypsoCardCDMX.getBalance()
+            );
+        } catch (SignatureException e) {
+            log.warn("Transaction success but MAC was not generated", e);
+        }
 
         return TransactionResult
                 .<TransactionDataEvent>builder()
