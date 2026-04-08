@@ -24,7 +24,14 @@
         <dependency>
             <groupId>com.idear.devices.card.cardkit</groupId>
             <artifactId>cardkit-core</artifactId>
-            <version>0.1.0</version>
+            <version>0.2.0</version>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.keyple</groupId>
+            <artifactId>keyple-util-java-lib</artifactId>
+            <version>2.4.0</version>
+            <scope>compile</scope>
         </dependency>
 
     </dependencies>

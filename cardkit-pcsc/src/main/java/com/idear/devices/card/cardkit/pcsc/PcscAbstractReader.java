@@ -1,9 +1,9 @@
 package com.idear.devices.card.cardkit.pcsc;
 
+import com.idear.devices.card.cardkit.core.io.apdu.ResponseApdu;
 import com.idear.devices.card.cardkit.core.io.reader.AbstractReader;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
-import lombok.RequiredArgsConstructor;
 import lombok.ToString;
 import org.eclipse.keyple.core.util.HexUtil;
 
@@ -106,12 +106,9 @@ public class PcscAbstractReader extends AbstractReader {
         }
     }
 
-    public Factory factory() {
-        return new Factory(this);
-    }
 
     @Override
-    public ResponseAPDU simpleCommand(CommandAPDU command) {
+    public ResponseApdu simpleCommand(CommandAPDU command) {
         if (cardChannel != null)
             try {
                 ResponseAPDU responseAPDU = cardChannel.transmit(command);
@@ -120,27 +117,12 @@ public class PcscAbstractReader extends AbstractReader {
                             String.format("bad status response, waited: %s, actual: %s, command: %s",
                                     9000, HexUtil.toHex(responseAPDU.getSW()), HexUtil.toHex(command.getBytes()))
                     );
-                return responseAPDU;
+                return new ResponseApdu(responseAPDU.getBytes());
             } catch (CardException e) {
                 throw new RuntimeException(e);
             }
 
         return null;
-    }
-
-    @RequiredArgsConstructor
-    public static class Factory {
-        private final PcscAbstractReader pcscReader;
-
-        public ResponseAPDU simpleCommand(CommandAPDU commandAPDU) {
-            return pcscReader.execute(new SimpleCommand(commandAPDU)).getData();
-        }
-
-        public ATR getATR() {
-            return pcscReader.getCard() != null ?
-                    pcscReader.getCard().getATR() :
-                    null;
-        }
     }
 
 }
