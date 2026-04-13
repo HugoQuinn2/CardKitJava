@@ -677,7 +677,7 @@ public abstract class KeypleUtil {
                 .setData(
                         signatureData,
                         signature,
-                        (byte) 0x00,
+                        (byte) 0x2B,
                         contractAuthKvc
                 );
     }
