@@ -624,4 +624,62 @@ public abstract class KeypleUtil {
         }
     }
 
+    /**
+     * Traceability information starts at bit-offset <code>D0h</code>:
+     * <ol>
+     *     <li>SAM serial number: <code>AA BB CC DD</code>, followed by
+     *     <li>Key counter: <code>X1 X2 X3</code></li>
+     * </ol>
+     *
+     * The signature <b>verification</b> key must be diversified with the value:
+     * <code>00 00 00 00 00 00 XX YY</code> where,
+     * <ol>
+     *     <li><code>XX</code> is the ContractNetworkId</li>
+     *     <li><code>YY</code> is the ContractProvider</li>
+     * </ol>
+     *
+     * The signature <b>verification</b> key gets its KVC from <code>ContractAuthKvc</code>.
+     *
+     * @param fullSerial Calypso serial number
+     * @param efContract Contract data
+     * @return {@link TraceableSignatureVerificationData}
+     */
+    public static TraceableSignatureVerificationData buildTraceableSignatureVerificationData(
+            byte[] fullSerial, Contract efContract) {
+        // Diversifier
+        byte[] diversifier = new byte[8];
+        diversifier[6] = (byte) efContract.getNetwork().getValue();
+        diversifier[7] = (byte) efContract.getProvider().getValue();
+
+        // Signature KVC
+        byte contractAuthKvc = (byte) efContract.getAuthKvc();
+
+        // traceability data offset
+        int offset = 0xD0;
+
+        // Signature data
+        byte[] signatureData = buildSignatureData(fullSerial, efContract);
+
+        // Signature
+        int signatureSize = 3;
+        byte[] signature = ByteArrayUtil.extractBytes(
+                efContract.getAuthenticator(),
+                signatureSize);
+
+        return LegacySamExtensionService.getInstance()
+                .getLegacySamApiFactory()
+                .createTraceableSignatureVerificationData()
+                .withSamTraceabilityMode(
+                        offset,
+                        SamTraceabilityMode.FULL_SERIAL_NUMBER,
+                        null)
+                .setKeyDiversifier(diversifier)
+                .setData(
+                        signatureData,
+                        signature,
+                        (byte) 0x00,
+                        contractAuthKvc
+                );
+    }
+
 }

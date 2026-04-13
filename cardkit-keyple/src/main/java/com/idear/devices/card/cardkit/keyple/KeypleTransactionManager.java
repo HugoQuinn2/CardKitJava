@@ -408,4 +408,22 @@ public class KeypleTransactionManager extends AbstractTransactionManager
             LocalDate endDate) {
         return execute(new PrePersonalization(keyGenerated, startDate, endDate));
     }
+
+    public TransactionResult<Boolean> verifyContractSignature(
+            CalypsoCardCDMX calypsoCardCDMX,
+            Contract contract) {
+        return execute(new VerifyContractSignature(
+           calypsoCardCDMX,
+           contract
+        ));
+    }
+
+    public TransactionResult<Boolean> verifyContractSignature(
+            CalypsoCardCDMX calypsoCardCDMX) {
+        return execute(new VerifyContractSignature(
+                calypsoCardCDMX,
+                calypsoCardCDMX.getContracts().getFirstContractValid()
+        ));
+    }
+
 }
