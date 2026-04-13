@@ -411,18 +411,22 @@ public class KeypleTransactionManager extends AbstractTransactionManager
 
     public TransactionResult<Boolean> verifyContractSignature(
             CalypsoCardCDMX calypsoCardCDMX,
-            Contract contract) {
+            Contract contract,
+            Long loopTryVerify) {
         return execute(new VerifyContractSignature(
            calypsoCardCDMX,
-           contract
+           contract,
+                loopTryVerify
         ));
     }
 
     public TransactionResult<Boolean> verifyContractSignature(
-            CalypsoCardCDMX calypsoCardCDMX) {
+            CalypsoCardCDMX calypsoCardCDMX,
+            Long loopTryVerify) {
         return execute(new VerifyContractSignature(
                 calypsoCardCDMX,
-                calypsoCardCDMX.getContracts().getFirstContractValid()
+                calypsoCardCDMX.getContracts().getFirstContractValid(),
+                loopTryVerify
         ));
     }
 
