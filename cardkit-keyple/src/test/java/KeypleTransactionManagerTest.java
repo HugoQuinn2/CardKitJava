@@ -12,6 +12,7 @@ import com.idear.devices.card.cardkit.keyple.KeypleCardReader;
 import com.idear.devices.card.cardkit.keyple.KeypleTransactionManager;
 import com.idear.devices.card.cardkit.keyple.TransactionDataEvent;
 import com.idear.devices.card.cardkit.core.io.transaction.CardStatus;
+import lombok.extern.slf4j.Slf4j;
 import org.eclipse.keypop.calypso.card.WriteAccessLevel;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeAll;
@@ -20,6 +21,7 @@ import java.time.LocalDateTime;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+@Slf4j
 public class KeypleTransactionManagerTest {
     public static final String ACS_CARD_READER = ".*ACS ACR1281 1S Dual Reader PICC.*";
     public static final String ACS_SAM_READER = ".*ACS ACR1281 1S Dual Reader SAM.*";
@@ -45,7 +47,7 @@ public class KeypleTransactionManagerTest {
     }
 
     @Test
-    public void simpleDebitCard() {
+    public void simpleDebitCard() throws InterruptedException {
         LocationCode locationCode = new LocationCode(0xAAAAAA);
         Provider provider = Provider.CABLEBUS;
         TransactionType transactionType = TransactionType.GENERAL_DEBIT;
@@ -60,6 +62,11 @@ public class KeypleTransactionManagerTest {
                 CalypsoCardCDMX calypsoCardCDMX = ktm.readCardData(WriteAccessLevel.LOAD)
                         .throwException() // throw the exception transaction result and abort all process
                         .getData();
+
+                TransactionResult<Boolean> verifyContract = ktm.verifyContractSignature(
+                        calypsoCardCDMX,
+                        1_000L
+                ).throwException();
 
                 TransactionResult<TransactionDataEvent> transactionResult = ktm.debitCard(
                         calypsoCardCDMX,
@@ -79,6 +86,8 @@ public class KeypleTransactionManagerTest {
         });
 
         ktm.startCardMonitor();
+
+        Thread.sleep(10000);
     }
 
     @Test

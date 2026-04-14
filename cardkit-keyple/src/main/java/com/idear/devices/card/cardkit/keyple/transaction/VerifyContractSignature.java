@@ -2,6 +2,7 @@ package com.idear.devices.card.cardkit.keyple.transaction;
 
 import com.idear.devices.card.cardkit.core.datamodel.calypso.cdmx.CalypsoCardCDMX;
 import com.idear.devices.card.cardkit.core.datamodel.calypso.cdmx.file.Contract;
+import com.idear.devices.card.cardkit.core.exception.SamException;
 import com.idear.devices.card.cardkit.core.io.transaction.AbstractTransaction;
 import com.idear.devices.card.cardkit.core.io.transaction.TransactionResult;
 import com.idear.devices.card.cardkit.core.io.transaction.TransactionStatus;
@@ -29,6 +30,9 @@ public class VerifyContractSignature extends AbstractTransaction<Boolean, Keyple
 
     @Override
     public TransactionResult<Boolean> execute(KeypleTransactionContext context) {
+
+        log.info("Verify contract signature, serial: {}, contract: {}",
+                calypsoCardCDMX.getSerial(), contract.toJson());
 
         long startTime = System.currentTimeMillis();
         long timeoutMs = (loopTryVerify != null) ? loopTryVerify : MAX_TRY_VERIFY;
@@ -75,19 +79,16 @@ public class VerifyContractSignature extends AbstractTransaction<Boolean, Keyple
                         continue;
                     }
 
-                    log.error("SAM busy timeout exceeded after {}ms", elapsed);
-                    break;
+                    throw new SamException(String.format("SAM busy timeout exceeded after %sms", elapsed));
                 }
 
-                if (message.contains("6988")) {
-                    log.warn("Incorrect contract signature (6988) for serial: {}",
-                            calypsoCardCDMX.getSerial());
-                    break;
-                }
+                if (message.contains("6988"))
+                    throw new SamException(String.format("Incorrect contract signature (6988) for serial: %s",
+                            calypsoCardCDMX.getSerial()));
 
-                log.error("Contract signature verification failed for serial: {}",
-                        calypsoCardCDMX.getSerial(), e);
-                break;
+                throw new SamException(
+                        String.format("Contract signature verification failed for serial: %s",
+                        calypsoCardCDMX.getSerial()), e);
             }
         }
 
